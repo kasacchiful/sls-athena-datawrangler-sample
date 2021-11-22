@@ -1,0 +1,290 @@
+service: awswrangler-sample
+frameworkVersion: "2"
+
+provider:
+  name: aws
+  runtime: python3.8
+  lambdaHashingVersion: 20201221
+  stage: dev
+  region: ap-northeast-1
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    zip: true
+    slim: true
+    dockerizePip: true
+  environment:
+    dev:
+      athena_workgroup: !Ref AthenaWorkGroup
+      athena_db: !Ref GlueDatabase
+      athena_log1_table: !Ref GlueLog1Table
+      athena_result_bucket: !Ref AthenaResultBucket
+      datamart_bucket: !Ref DataMartBucket
+
+package:
+  patterns:
+    - "!.DS_Store"
+    - "!.git/**"
+    - "!.gitignore"
+    - "!.serverless"
+    - "!.serverless/**"
+    - "!Readme.md"
+    - "!package.json"
+    - "!requirements.txt"
+    - "!serverless.yml"
+    - "!yarn.lock"
+    - "!.node-version"
+    - "!.python-version"
+    - "!node_modules"
+    - "!node_modules/**"
+    - "!cfn"
+    - "!cfn/**"
+    - "!env"
+    - "!env/**"
+    - "!data"
+    - "!data/**"
+    - "!__pycache__"
+    - functions/**
+
+functions:
+  hello:
+    handler: functions/hello/index.handler
+    role: AthenaLambdaRole
+    memorySize: 512
+    timeout: 900
+    environment: ${self:custom.environment.${self:provider.stage}}
+    events:
+      - httpApi:
+          path: /hello
+          method: get
+  wrangle:
+    handler: functions/wrangle/index.handler
+    role: AthenaLambdaRole
+    memorySize: 512
+    timeout: 900
+    environment: ${self:custom.environment.${self:provider.stage}}
+    layers:
+      - "arn:aws:lambda:ap-northeast-1:000000000000:layer:awswrangler-layer-2_12_1-py3_8:1"
+    events:
+      - httpApi:
+          path: /wrangle
+          method: get
+
+resources:
+  Resources:
+    # IAM Role
+    AthenaLambdaRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action: sts:AssumeRole
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        Policies:
+          - PolicyName: AthenaLambdaPolicy
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - s3:*
+                  Resource:
+                    - "arn:aws:s3:::${self:service}-datalake-bucket-${self:provider.stage}"
+                    - "arn:aws:s3:::${self:service}-datalake-bucket-${self:provider.stage}/*"
+                    - "arn:aws:s3:::${self:service}-datamart-bucket-${self:provider.stage}"
+                    - "arn:aws:s3:::${self:service}-datamart-bucket-${self:provider.stage}/*"
+                    - "arn:aws:s3:::${self:service}-athena-result-bucket-${self:provider.stage}"
+                    - "arn:aws:s3:::${self:service}-athena-result-bucket-${self:provider.stage}/*"
+                - Effect: Allow
+                  Action:
+                    - athena:*
+                  Resource:
+                    - "*"
+                - Effect: Allow
+                  Action:
+                    - glue:*
+                  Resource:
+                    - "*"
+
+    # S3
+    DataLakeBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:service}-datalake-bucket-${self:provider.stage}
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+    DataMartBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:service}-datamart-bucket-${self:provider.stage}
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+    AthenaResultBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:service}-athena-result-bucket-${self:provider.stage}
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+    DataLakeBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket:
+          Ref: DataLakeBucket
+        PolicyDocument:
+          Statement:
+            - Sid: AllowSSLRequestOnly
+              Action:
+                - "s3:*"
+              Effect: "Deny"
+              Resource:
+                - Fn::Join:
+                    - ""
+                    - - "arn:aws:s3:::"
+                      - Ref: DataLakeBucket
+                - Fn::Join:
+                    - ""
+                    - - "arn:aws:s3:::"
+                      - Ref: DataLakeBucket
+                      - "/*"
+              Principal: "*"
+              Condition:
+                Bool:
+                  "aws:SecureTransport": "false"
+    DataMartBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket:
+          Ref: DataMartBucket
+        PolicyDocument:
+          Statement:
+            - Sid: AllowSSLRequestOnly
+              Action:
+                - "s3:*"
+              Effect: "Deny"
+              Resource:
+                - Fn::Join:
+                    - ""
+                    - - "arn:aws:s3:::"
+                      - Ref: DataMartBucket
+                - Fn::Join:
+                    - ""
+                    - - "arn:aws:s3:::"
+                      - Ref: DataMartBucket
+                      - "/*"
+              Principal: "*"
+              Condition:
+                Bool:
+                  "aws:SecureTransport": "false"
+    AthenaResultBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket:
+          Ref: AthenaResultBucket
+        PolicyDocument:
+          Statement:
+            - Sid: AllowSSLRequestOnly
+              Action:
+                - "s3:*"
+              Effect: "Deny"
+              Resource:
+                - Fn::Join:
+                    - ""
+                    - - "arn:aws:s3:::"
+                      - Ref: AthenaResultBucket
+                - Fn::Join:
+                    - ""
+                    - - "arn:aws:s3:::"
+                      - Ref: AthenaResultBucket
+                      - "/*"
+              Principal: "*"
+              Condition:
+                Bool:
+                  "aws:SecureTransport": "false"
+    # Glue Data Catalog
+    GlueDatabase:
+      Type: AWS::Glue::Database
+      Properties:
+        CatalogId: !Ref AWS::AccountId
+        DatabaseInput:
+          Name:
+            Fn::Join:
+              - ""
+              - - Fn::Join:
+                    - "_"
+                    - Fn::Split:
+                        - "-"
+                        - ${self:service}
+                - _datalake_bucket_${self:provider.stage}
+    # Glue Table
+    GlueLog1Table:
+      Type: AWS::Glue::Table
+      Properties:
+        CatalogId: !Ref AWS::AccountId
+        DatabaseName: !Ref GlueDatabase
+        TableInput:
+          Name: log1
+          TableType: EXTERNAL_TABLE
+          Parameters:
+            has_encrypted_data: false
+            projection.enabled: true
+            projection.user_id.type: injected
+            projection.date.type: date
+            projection.date.range: "2021/01/01,NOW"
+            projection.date.format: yyyy/MM/dd
+            projection.date.interval: 1
+            projection.date.interval.unit: DAYS
+            storage.location.template: !Join
+              - ""
+              - - !Sub s3://${DataLakeBucket}/log1/
+                - "${user_id}/${date}"
+            external: true
+          PartitionKeys:
+            - Name: user_id
+              Type: string
+            - Name: date
+              Type: string
+          StorageDescriptor:
+            Columns:
+              - Name: id
+                Type: string
+              - Name: title
+                Type: string
+              - Name: body
+                Type: string
+            InputFormat: org.apache.hadoop.mapred.TextInputFormat
+            OutputFormat: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+            Location: !Sub s3://${DataLakeBucket}/log1/
+            SerdeInfo:
+              Parameters:
+                serialization.format: 1
+                parguet.compress: GZIP
+              SerializationLibrary: org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe
+    # Athena Work Group
+    AthenaWorkGroup:
+      Type: AWS::Athena::WorkGroup
+      Properties:
+        Name: ${self:service}-athena-workgroup-${self:provider.stage}
+        RecursiveDeleteOption: true
+        WorkGroupConfiguration:
+          ResultConfiguration:
+            OutputLocation: !Sub s3://${AthenaResultBucket}/result
+          EnforceWorkGroupConfiguration: true
+          PublishCloudWatchMetricsEnabled: true

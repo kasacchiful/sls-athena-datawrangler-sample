@@ -1,0 +1,12 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: "AWS::Serverless-2016-10-31"
+Description: A Lambda application that calls the Lambda API
+Resources:
+  AwsWranglerLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: awswrangler-layer-2_12_1-py3_8
+      Description: awswrangler-layer-2.12.1-py3.8
+      ContentUri: "s3://awswrangler-sample-lambdalayer/awswrangler-layer-2.12.1-py3.8.zip"
+      CompatibleRuntimes:
+        - python3.8
